@@ -1,6 +1,6 @@
 const express = require('express');
 const busboy = require('busboy');
-const packager = require('@electron/packager');
+const { packager } = require('@electron/packager');
 const AdmZip = require('adm-zip');
 const path = require('path');
 const fs = require('fs-extra');
