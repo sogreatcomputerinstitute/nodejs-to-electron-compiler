@@ -86,16 +86,17 @@ app.post('/compile', (req, res) => {
             sendStatus(buildId, "Compiling native Windows binary (.exe)...", 65);
             
             // FIX: Explicitly pass electronVersion here to stop the 'electron/package.json' search error
-            const appPaths = await packager({
-                dir: srcDir,
-                out: outputDir,
-                name: userPackageJson.name || 'ElectronApp',
-                platform: 'win32',
-                arch: 'x64',
-                overwrite: true,
-                asar: true,
-                electronVersion: '30.0.0' // <-- Explicit hardcoded fallback version fixed the error
-            });
+        const appPaths = await packager({
+    dir: srcDir,
+    out: outputDir,
+    name: userPackageJson.name || 'ElectronApp',
+    platform: 'win32',
+    arch: 'x64',
+    overwrite: true,
+    asar: true,
+    electronVersion: '30.0.0', // Keeps version matching decoupled
+    prune: false               // <--- CRITICAL: Prevents the packager from scanning and dropping modules it doesn't see natively
+});
 
             sendStatus(buildId, "Compilation complete. Archiving distribution folder...", 85);
             const clientZip = new AdmZip();
