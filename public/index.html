@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>10x Parallel Electron Compiler</title>
+    <title>Live Stream Electron Compiler</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -12,7 +12,7 @@
         }
         .container {
             background: #1e293b; padding: 2.5rem; border-radius: 12px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); text-align: center; width: 420px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); text-align: center; width: 440px;
         }
         h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #38bdf8; }
         .drop-zone {
@@ -21,26 +21,21 @@
         .drop-zone:hover, .drop-zone.dragover { border-color: #38bdf8; background: #334155; }
         input[type="file"] { display: none; }
         .progress-container { margin-top: 1.5rem; display: none; text-align: left; }
-        progress { width: 100%; height: 10px; border-radius: 5px; accent-color: #10b981; margin-top: 4px; }
-        .status { margin-top: 0.5rem; font-size: 0.875rem; color: #94a3b8; font-weight: 500; }
-        .speed-badge {
-            display: inline-block; background: #0369a1; color: #e0f2fe; 
-            font-size: 11px; font-weight: bold; padding: 2px 8px; 
-            border-radius: 12px; margin-top: 10px;
-        }
+        progress { width: 100%; height: 12px; border-radius: 6px; accent-color: #10b981; margin-top: 6px; }
+        .status { margin-top: 0.5rem; font-size: 0.9rem; color: #38bdf8; font-weight: 500; min-height: 20px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Electron Compiler <span class="speed-badge">10x Pipeline</span></h1>
+    <h1>Electron Compiler Dashboard</h1>
     <div class="drop-zone" id="dropZone">
         <p>Drag & Drop project <b>.zip</b> here</p>
         <input type="file" id="fileInput" accept=".zip">
     </div>
 
     <div class="progress-container" id="progressContainer">
-        <div class="status" id="statusText">Ready</div>
+        <div class="status" id="statusText">Awaiting file...</div>
         <progress id="progressBar" value="0" max="100"></progress>
     </div>
 </div>
@@ -63,42 +58,64 @@
         if (fileInput.files.length) startWorkflow(fileInput.files[0]);
     });
 
-    async function startWorkflow(file) {
+    function startWorkflow(file) {
         progressContainer.style.display = 'block';
-        statusText.innerText = "Uploading source archive...";
-        progressBar.removeAttribute('value');
+        statusText.innerText = "Initializing pipe upload: 0%";
+        progressBar.value = 0;
 
+        const xhr = new XMLHttpRequest();
         const formData = new FormData();
         formData.append('codezip', file);
 
-        try {
-            // 1. Send to server for processing
-            const response = await fetch('/compile', { method: 'POST', body: formData });
-            if (!response.ok) throw new Error("Compilation server side failed.");
-            
-            const { buildId, totalBytes } = await response.json();
-            
-            // 2. Multi-threaded Range Download Engine (Set to 10 channels)
-            statusText.innerText = "Downloading over 10 parallel channels...";
-            const compiledBlob = await downloadFileInParallel(buildId, totalBytes, 10);
-            
-            // 3. Mount assembly to browser frame and click
-            statusText.innerText = "Assembling blocks! Saving file...";
-            const link = document.createElement('a');
-            link.href = window.URL.createObjectURL(compiledBlob);
-            link.download = `compiled-windows-app.zip`;
-            link.click();
+        // Track real-time network upload status
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                progressBar.value = percent * 0.95; // Leave a tiny bit of visual space for server processing step
+                statusText.innerText = `Uploading source files to server: ${percent}%`;
+            }
+        });
 
-            // 4. Send clear flag to empty Server RAM cache
-            fetch(`/download/${buildId}`, { method: 'DELETE' });
+        xhr.onload = async function () {
+            if (xhr.status === 200) {
+                const { buildId, totalBytes } = JSON.parse(xhr.responseText);
+                
+                // Hook into live Server-Sent Events logging pipeline
+                const eventSource = new EventSource(`/status/${buildId}`);
+                
+                eventSource.onmessage = async function(event) {
+                    const data = JSON.parse(event.data);
+                    statusText.innerText = `[Server]: ${data.message}`;
+                    if (data.progress !== null) {
+                        progressBar.value = data.progress;
+                    }
 
-        } catch (err) {
-            statusText.innerText = `Error: ${err.message}`;
-            progressBar.value = 0;
-        }
+                    // Once server is fully ready, download with 10 streams
+                    if (data.progress === 100) {
+                        eventSource.close();
+                        statusText.innerText = "Triggering high-speed 10-channel download pipeline...";
+                        
+                        const compiledBlob = await downloadFileInParallel(buildId, totalBytes, 10);
+                        
+                        statusText.innerText = "Assembling streams! Saving executable package...";
+                        const link = document.createElement('a');
+                        link.href = window.URL.createObjectURL(compiledBlob);
+                        link.download = `compiled-windows-app.zip`;
+                        link.click();
+
+                        fetch(`/download/${buildId}`, { method: 'DELETE' });
+                    }
+                };
+            } else {
+                statusText.innerText = "Error: Upload or compilation handshake rejected.";
+                progressBar.value = 0;
+            }
+        };
+
+        xhr.open('POST', '/compile');
+        xhr.send(formData);
     }
 
-    // High-Concurrency Parallel Chunk Extractor
     async function downloadFileInParallel(buildId, totalBytes, concurrency = 10) {
         const chunkSize = Math.ceil(totalBytes / concurrency);
         const promises = [];
@@ -110,34 +127,27 @@
         for (let i = 0; i < concurrency; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize - 1, totalBytes - 1);
-
-            // Skip invalid range blocks if file size is smaller than concurrency factor
             if (start >= totalBytes) continue;
 
             promises.push(
-                fetch(`/download/${buildId}`, {
-                    headers: { 'Range': `bytes=${start}-${end}` }
-                }).then(async (res) => {
-                    if (!res.ok) throw new Error(`Channel ${i} dropped payload connectivity.`);
+                fetch(`/download/${buildId}`, { headers: { 'Range': `bytes=${start}-${end}` } })
+                .then(async (res) => {
                     const reader = res.body.getReader();
                     const chunks = [];
-                    
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) break;
                         chunks.push(value);
                         completedBytes += value.length;
-                        progressBar.value = completedBytes; // Merged progress update ticking
+                        progressBar.value = completedBytes;
+                        statusText.innerText = `Downloading: ${Math.round((completedBytes / totalBytes) * 100)}%`;
                     }
-                    
                     return { index: i, blob: new Blob(chunks) };
                 })
             );
         }
 
         const results = await Promise.all(promises);
-        
-        // Critically important: Sort the blocks sequentially by index before joining them together!
         results.sort((a, b) => a.index - b.index);
         return new Blob(results.map(r => r.blob), { type: 'application/zip' });
     }
