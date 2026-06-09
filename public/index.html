@@ -3,40 +3,221 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Stream Electron Compiler</title>
+    <title>Electron Compiler Cloud Dashboard</title>
     <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --accent-blue: #38bdf8;
+            --accent-green: #10b981;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f172a; color: #f8fafc;
-            display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden;
         }
+
+        /* Smooth Floating Subtle Background Orbs */
+        .orb {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.08) 0%, rgba(0,0,0,0) 70%);
+            z-index: 0;
+            animation: float 12s infinite ease-in-out;
+        }
+        .orb-1 { top: -10%; left: -10%; }
+        .orb-2 { bottom: -10%; right: -10%; animation-delay: -6s; }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-20px) scale(1.05); }
+        }
+
         .container {
-            background: #1e293b; padding: 2.5rem; border-radius: 12px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); text-align: center; width: 440px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            padding: 3rem;
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            width: 460px;
+            z-index: 10;
+            position: relative;
+            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }
-        h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #38bdf8; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 0 0 0.5rem 0;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #fff, var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.925rem;
+            margin-bottom: 2rem;
+        }
+
+        /* High-fidelity Drag and Drop Zone */
         .drop-zone {
-            border: 2px dashed #475569; padding: 2rem; border-radius: 8px; cursor: pointer; transition: border 0.2s;
+            border: 2px dashed rgba(56, 189, 248, 0.25);
+            background: rgba(15, 23, 42, 0.4);
+            padding: 2.5rem 2rem;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
         }
-        .drop-zone:hover, .drop-zone.dragover { border-color: #38bdf8; background: #334155; }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--accent-blue);
+            background: rgba(56, 189, 248, 0.05);
+            transform: scale(1.01);
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.1);
+        }
+
+        .drop-zone icon {
+            font-size: 3rem;
+            display: block;
+            margin-bottom: 1rem;
+            transition: transform 0.3s ease;
+        }
+        .drop-zone:hover icon {
+            transform: translateY(-4px);
+        }
+
+        .drop-zone p { margin: 0; font-size: 1rem; font-weight: 500; }
+        .drop-zone span { font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.5rem; }
         input[type="file"] { display: none; }
-        .progress-container { margin-top: 1.5rem; display: none; text-align: left; }
-        progress { width: 100%; height: 12px; border-radius: 6px; accent-color: #10b981; margin-top: 6px; }
-        .status { margin-top: 0.5rem; font-size: 0.9rem; color: #38bdf8; font-weight: 500; min-height: 20px; }
+
+        /* Animation & Analytics Processing Layout Block */
+        .progress-container {
+            margin-top: 2rem;
+            display: none;
+            text-align: left;
+            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .percentage-bubble {
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent-blue);
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Custom Track Indicator styling */
+        .progress-bar-wrapper {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 9999px;
+            padding: 4px;
+            margin-top: 0.75rem;
+            border: 1px solid rgba(255,255,255,0.03);
+        }
+
+        progress {
+            width: 100%;
+            height: 8px;
+            border-radius: 9999px;
+            display: block;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+
+        progress::-webkit-progress-bar { background: transparent; }
+        progress::-webkit-progress-value {
+            background: linear-gradient(to right, var(--accent-blue), var(--accent-green));
+            border-radius: 9999px;
+            transition: width 0.4s ease;
+        }
+
+        /* Real-time Streaming Output Terminal */
+        .console-log {
+            margin-top: 1.25rem;
+            background: #020617;
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 0.875rem 1rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.8rem;
+            color: #34d399;
+            height: 48px;
+            overflow-y: auto;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+        }
+
+        .console-log::before {
+            content: "> ";
+            color: #64748b;
+            margin-right: 0.5rem;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
 
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+
 <div class="container">
-    <h1>Electron Compiler Dashboard</h1>
+    <h1>Electron Compiler</h1>
+    <div class="subtitle">10x Multi-Channel Production Pipeline</div>
+
     <div class="drop-zone" id="dropZone">
-        <p>Drag & Drop project <b>.zip</b> here</p>
+        <icon>📦</icon>
+        <p>Drop your project archive here</p>
+        <span>Accepts standard .zip files containing package.json</span>
         <input type="file" id="fileInput" accept=".zip">
     </div>
 
     <div class="progress-container" id="progressContainer">
-        <div class="status" id="statusText">Awaiting file...</div>
-        <progress id="progressBar" value="0" max="100"></progress>
+        <div class="status-header">
+            <span id="statusText">Preparing pipeline initialization...</span>
+            <span class="percentage-bubble" id="percentText">0%</span>
+        </div>
+        <div class="progress-bar-wrapper">
+            <progress id="progressBar" value="0" max="100"></progress>
+        </div>
+        <div class="console-log" id="consoleOutput">Awaiting socket assignment...</div>
     </div>
 </div>
 
@@ -46,6 +227,8 @@
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const statusText = document.getElementById('statusText');
+    const percentText = document.getElementById('percentText');
+    const consoleOutput = document.getElementById('consoleOutput');
 
     dropZone.addEventListener('click', () => fileInput.click());
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -58,21 +241,32 @@
         if (fileInput.files.length) startWorkflow(fileInput.files[0]);
     });
 
+    function updateUI(status, progressValue, consoleMsg) {
+        if (status) statusText.innerText = status;
+        if (progressValue !== null) {
+            progressBar.value = progressValue;
+            percentText.innerText = `${Math.round(progressValue)}%`;
+        }
+        if (consoleMsg) {
+            consoleOutput.innerText = consoleMsg;
+        }
+    }
+
     function startWorkflow(file) {
         progressContainer.style.display = 'block';
-        statusText.innerText = "Initializing pipe upload: 0%";
-        progressBar.value = 0;
+        updateUI("Uploading to server...", 0, "Opening connection pipeline to Render...");
 
         const xhr = new XMLHttpRequest();
         const formData = new FormData();
         formData.append('codezip', file);
 
-        // Track real-time network upload status
+        // Track native HTTP client transmission progress
         xhr.upload.addEventListener('progress', (e) => {
             if (e.lengthComputable) {
                 const percent = Math.round((e.loaded / e.total) * 100);
-                progressBar.value = percent * 0.95; // Leave a tiny bit of visual space for server processing step
-                statusText.innerText = `Uploading source files to server: ${percent}%`;
+                // Cap progress visualization at 95% until server takes over explicitly via SSE logs
+                const adjustedProgress = percent * 0.95;
+                updateUI("Transferring project assets...", adjustedProgress, `Uploading chunks: ${percent}% complete`);
             }
         });
 
@@ -80,38 +274,46 @@
             if (xhr.status === 200) {
                 const { buildId, totalBytes } = JSON.parse(xhr.responseText);
                 
-                // Hook into live Server-Sent Events logging pipeline
+                // Establish connection to Server-Sent Events (SSE) log stream
                 const eventSource = new EventSource(`/status/${buildId}`);
                 
                 eventSource.onmessage = async function(event) {
                     const data = JSON.parse(event.data);
-                    statusText.innerText = `[Server]: ${data.message}`;
-                    if (data.progress !== null) {
-                        progressBar.value = data.progress;
-                    }
+                    
+                    updateUI(
+                        data.progress === 100 ? "Finalizing tasks..." : "Processing build...", 
+                        data.progress, 
+                        data.message
+                    );
 
-                    // Once server is fully ready, download with 10 streams
+                    // When compile completes (100%), execute multi-channel download
                     if (data.progress === 100) {
                         eventSource.close();
-                        statusText.innerText = "Triggering high-speed 10-channel download pipeline...";
+                        updateUI("Downloading bundle...", 0, "Spawning 10 parallel HTTP Range streams...");
                         
-                        const compiledBlob = await downloadFileInParallel(buildId, totalBytes, 10);
-                        
-                        statusText.innerText = "Assembling streams! Saving executable package...";
-                        const link = document.createElement('a');
-                        link.href = window.URL.createObjectURL(compiledBlob);
-                        link.download = `compiled-windows-app.zip`;
-                        link.click();
-
-                        fetch(`/download/${buildId}`, { method: 'DELETE' });
+                        try {
+                            const compiledBlob = await downloadFileInParallel(buildId, totalBytes, 10);
+                            
+                            updateUI("Build complete!", 100, "Package successfully assembled inside browser memory!");
+                            
+                            const link = document.createElement('a');
+                            link.href = window.URL.createObjectURL(compiledBlob);
+                            link.download = `${file.name.replace('.zip', '')}-win32-x64.zip`;
+                            link.click();
+                        } catch (err) {
+                            updateUI("Download failed", 0, `Stream error: ${err.message}`);
+                        } finally {
+                            // Clear Server RAM/Disk Cache allocation
+                            fetch(`/download/${buildId}`, { method: 'DELETE' });
+                        }
                     }
                 };
             } else {
-                statusText.innerText = "Error: Upload or compilation handshake rejected.";
-                progressBar.value = 0;
+                updateUI("Handshake rejected", 0, `Error HTTP ${xhr.status}: Build cancelled by server.`);
             }
         };
 
+        xhr.onerror = () => updateUI("Connection dropped", 0, "Network failure occurred during transmission.");
         xhr.open('POST', '/compile');
         xhr.send(formData);
     }
@@ -121,9 +323,6 @@
         const promises = [];
         let completedBytes = 0;
 
-        progressBar.max = totalBytes;
-        progressBar.value = 0;
-
         for (let i = 0; i < concurrency; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize - 1, totalBytes - 1);
@@ -132,6 +331,7 @@
             promises.push(
                 fetch(`/download/${buildId}`, { headers: { 'Range': `bytes=${start}-${end}` } })
                 .then(async (res) => {
+                    if (!res.ok) throw new Error(`Stream slice ${i} dropped.`);
                     const reader = res.body.getReader();
                     const chunks = [];
                     while (true) {
@@ -139,8 +339,9 @@
                         if (done) break;
                         chunks.push(value);
                         completedBytes += value.length;
-                        progressBar.value = completedBytes;
-                        statusText.innerText = `Downloading: ${Math.round((completedBytes / totalBytes) * 100)}%`;
+                        
+                        const calcProgress = (completedBytes / totalBytes) * 100;
+                        updateUI(null, calcProgress, `Pulling stream down at full capacity...`);
                     }
                     return { index: i, blob: new Blob(chunks) };
                 })
