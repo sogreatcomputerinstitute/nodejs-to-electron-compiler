@@ -1,14 +1,12 @@
 const express = require('express');
 const busboy = require('busboy');
-const { packager } = require('@electron/packager');
 const AdmZip = require('adm-zip');
 const path = require('path');
 const fs = require('fs-extra');
-const { execSync } = require('child_process');
 const compression = require('compression');
+const { downloadArtifact } = require('@electron/get'); // Official Binary Downloader
 
 const app = express();
-
 app.use(compression());
 app.use(express.static('public'));
 
@@ -17,9 +15,26 @@ const activeStreams = new Map();
 
 function sendStatus(buildId, message, progress = null) {
     const res = activeStreams.get(buildId);
-    if (res) {
-        res.write(`data: ${JSON.stringify({ message, progress })}\n\n`);
-    }
+    if (res) res.write(`data: ${JSON.stringify({ message, progress })}\n\n`);
+}
+
+// Function to fetch the official Windows Electron distribution directly
+async function getBaseElectronZip(buildId) {
+    const cacheDir = path.join(__dirname, 'cache');
+    await fs.ensureDir(cacheDir);
+
+    sendStatus(buildId, "Fetching official Windows Electron binaries directly from source...", 30);
+    
+    // Downloads electron-v30.0.0-win32-x64.zip directly from GitHub releases safely
+    const zipFilePath = await downloadArtifact({
+        version: '30.0.0',
+        platform: 'win32',
+        arch: 'x64',
+        artifactName: 'electron',
+        cacheRoot: cacheDir
+    });
+
+    return zipFilePath;
 }
 
 app.get('/status/:buildId', (req, res) => {
@@ -35,83 +50,50 @@ app.post('/compile', (req, res) => {
     const bb = busboy({ headers: req.headers });
     const buildId = `build_${Date.now()}`;
     const workspaceDir = path.join(__dirname, 'workspaces', buildId);
-    const srcDir = path.join(workspaceDir, 'src');
-    const outputDir = path.join(workspaceDir, 'dist');
+    const appDir = path.join(workspaceDir, 'resources', 'app'); 
     const tempZipPath = path.join(__dirname, 'uploads', `${buildId}.zip`);
     const finalZipPath = path.join(__dirname, 'uploads', `final_${buildId}.zip`);
     
     fs.ensureDirSync(path.dirname(tempZipPath));
-    fs.ensureDirSync(srcDir);
+    fs.ensureDirSync(appDir);
 
     let writeStream;
-
     req.pipe(bb);
-
     bb.on('file', (name, file) => {
         writeStream = fs.createWriteStream(tempZipPath);
         file.pipe(writeStream);
     });
 
     bb.on('finish', () => {
-        // CRITICAL FIX: Wait for the file stream to fully finish flushing to disk before unzipping
-        if (!writeStream) {
-            return res.status(400).send('No file uploaded.');
-        }
+        if (!writeStream) return res.status(400).send('No file uploaded.');
 
         writeStream.on('finish', async () => {
             try {
-                sendStatus(buildId, "Upload flushed to disk safely. Extracting project...", 15);
+                // 1. Fetch base package directly via function call
+                const baseElectronZipPath = await getBaseElectronZip(buildId);
                 
-                if (!fs.existsSync(tempZipPath) || fs.statSync(tempZipPath).size === 0) {
-                    throw new Error("Uploaded zip file is empty or missing from disk.");
-                }
+                sendStatus(buildId, "Extracting clean Windows architecture framework...", 55);
+                const baseZip = new AdmZip(baseElectronZipPath);
+                baseZip.extractAllTo(workspaceDir, true);
 
-                const zip = new AdmZip(tempZipPath);
-                zip.extractAllTo(srcDir, true);
+                sendStatus(buildId, "Injecting your source code into executable runtime...", 75);
+                const userZip = new AdmZip(tempZipPath);
+                userZip.extractAllTo(appDir, true);
 
-                const userPackageJsonPath = path.join(srcDir, 'package.json');
+                // 2. Handle metadata fallback configurations
+                const userPackageJsonPath = path.join(appDir, 'package.json');
                 if (!fs.existsSync(userPackageJsonPath)) {
-                    sendStatus(buildId, "Error: package.json missing from root.");
-                    return res.status(400).send('Error: package.json missing.');
+                    fs.writeJsonSync(userPackageJsonPath, { name: "electron-app", version: "1.0.0", main: "main.js" });
                 }
 
-                const userPackageJson = fs.readJsonSync(userPackageJsonPath);
-                userPackageJson.dependencies = userPackageJson.dependencies || {};
+                sendStatus(buildId, "Compressing delivery archive...", 90);
+                const finalZip = new AdmZip();
+                finalZip.addLocalFolder(workspaceDir);
+                finalZip.writeZip(finalZipPath);
 
-                // FIX: Strip Electron module completely out of npm install to save RAM
-                if (userPackageJson.dependencies.electron) delete userPackageJson.dependencies.electron;
-                if (userPackageJson.devDependencies?.electron) delete userPackageJson.devDependencies.electron;
-                fs.writeJsonSync(userPackageJsonPath, userPackageJson, { spaces: 2 });
-
-                sendStatus(buildId, "Running lightweight npm install...", 40);
-                // --no-audit and --no-fund save massive amounts of temporary container RAM
-                execSync('npm install --production --no-audit --no-fund', { cwd: srcDir, stdio: 'ignore' });
-
-                sendStatus(buildId, "Compiling native Windows binary (.exe)...", 65);
-                
-                const appPaths = await packager({
-                    dir: srcDir,
-                    out: outputDir,
-                    name: userPackageJson.name || 'ElectronApp',
-                    platform: 'win32',
-                    arch: 'x64',
-                    overwrite: true,
-                    asar: true,
-                    electronVersion: '30.0.0',
-                    prune: false // Keeps our light node_modules intact smoothly
-                });
-
-                sendStatus(buildId, "Archiving build directly to file system...", 85);
-                
-                // FIX: Write zip directly to file system instead of creating huge memory buffers
-                const clientZip = new AdmZip();
-                clientZip.addLocalFolder(appPaths[0]);
-                clientZip.writeZip(finalZipPath);
-
-                // Track download info via file path references instead of caching heavy array buffers in RAM
                 activeBuilds.set(buildId, {
                     filePath: finalZipPath,
-                    name: `${userPackageJson.name || 'windows-app'}-win32-x64.zip`
+                    name: `electron-packaged-app.zip`
                 });
 
                 sendStatus(buildId, "Ready for download!", 100);
@@ -119,10 +101,9 @@ app.post('/compile', (req, res) => {
 
             } catch (error) {
                 console.error(error);
-                sendStatus(buildId, `Compilation Failed: ${error.message}`, 0);
-                if (!res.headersSent) res.status(500).send(`Compilation Error: ${error.message}`);
+                sendStatus(buildId, `Process Error: ${error.message}`, 0);
+                if (!res.headersSent) res.status(500).send(error.message);
             } finally {
-                // Clean up source folders safely
                 fs.remove(workspaceDir).catch(() => {});
                 fs.remove(tempZipPath).catch(() => {});
             }
@@ -130,14 +111,12 @@ app.post('/compile', (req, res) => {
     });
 });
 
-// Stream from File System using fast native Range streams instead of memory slices
+// Parallel Download Channels
 app.get('/download/:buildId', (req, res) => {
     const build = activeBuilds.get(req.params.buildId);
-    if (!build || !fs.existsSync(build.filePath)) return res.status(404).send('Build not found.');
-
+    if (!build || !fs.existsSync(build.filePath)) return res.status(404).send('Not found.');
     const totalSize = fs.statSync(build.filePath).size;
     const range = req.headers.range;
-
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${build.name}"`);
@@ -146,16 +125,8 @@ app.get('/download/:buildId', (req, res) => {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
         const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-        const chunksize = (end - start) + 1;
-
-        res.status(206).set({
-            'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-            'Content-Length': chunksize,
-        });
-
-        // High-speed file system stream mapping
-        const fileStream = fs.createReadStream(build.filePath, { start, end });
-        fileStream.pipe(res);
+        res.status(206).set({ 'Content-Range': `bytes ${start}-${end}/${totalSize}`, 'Content-Length': (end - start) + 1 });
+        fs.createReadStream(build.filePath, { start, end }).pipe(res);
     } else {
         res.set('Content-Length', totalSize);
         fs.createReadStream(build.filePath).pipe(res);
@@ -164,11 +135,8 @@ app.get('/download/:buildId', (req, res) => {
 
 app.delete('/download/:buildId', (req, res) => {
     const build = activeBuilds.get(req.params.buildId);
-    if (build) {
-        fs.remove(build.filePath).catch(() => {});
-        activeBuilds.delete(req.params.buildId);
-    }
+    if (build) { fs.remove(build.filePath).catch(() => {}); activeBuilds.delete(req.params.buildId); }
     res.sendStatus(200);
 });
 
-app.listen(3000, () => console.log('Server running on port 3000'));
+app.listen(3000, () => console.log('Server stabilized with @electron/get on port 3000'));
